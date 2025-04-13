@@ -1,76 +1,80 @@
 // Background script for the LinkedAI extension
 // Handles the Gemini API calls for generating cold messages
-import { VITE_GEMINI_API_KEY } from '../.env';
 
 const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
+const GEMINI_API_KEY = "AIzaSyBIhVMhMbjY6TAaKB2fnOPJGq-1TLW8glk"; // Hardcoded API key
 const SUPABASE_URL = "https://okeurgyhsrgcidiqubbe.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9rZXVyZ3loc3JnY2lkaXF1YmJlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTMzMTEzNzgsImV4cCI6MjAyODg4NzM3OH0.Hg3FY4ImTEJ_tKQEpYNM_PkxFfBE9wsfTU4oCswKhM0";
 
 // Listen for messages from the popup
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === "generateMessage") {
-    console.log("Generating message with pageInfo:", request.pageInfo);
-    console.log("IMPORTANT - Recipient Name from pageInfo:", request.pageInfo.name);
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === "generateMessage") {
+    console.log("Background received message:", message);
+    console.log("Page Info:", message.pageInfo);
+    console.log("Resume Data:", message.resumeData);
+    console.log("Company from pageInfo:", message.pageInfo.company);
     
-    // Ensure we have a name before proceeding
-    if (!request.pageInfo.name || request.pageInfo.name === "Unknown from content.js") {
-      console.error("Missing recipient name - attempting to extract from title");
-      
-      // Try to get name from title as fallback
-      if (request.pageInfo.title && request.pageInfo.title.includes(" | LinkedIn")) {
-        const titleParts = request.pageInfo.title.split(" | ")[0].split(" - ");
-        if (titleParts.length > 0) {
-          request.pageInfo.name = titleParts[0].trim();
-          console.log("Extracted name from page title as fallback:", request.pageInfo.name);
-        }
-      }
-    }
-    
-    generatePersonalizedMessage(request.pageInfo, request.resumeData, request.jobData)
+    generatePersonalizedMessage(message.pageInfo, message.resumeData, message.jobData)
       .then(result => {
-        console.log("Message generated successfully");
+        console.log("Generated message:", result);
         sendResponse({ message: result });
       })
       .catch(error => {
         console.error("Error generating message:", error);
-        sendResponse({ error: error.message });
+        sendResponse({ error: error.message || "Failed to generate message" });
       });
+    
+    // Return true to indicate we'll respond asynchronously
     return true;
   }
 });
 
-// Simplified function to get prompt template
+// Exactly matching the TemplateSelector component implementation
 async function getPromptTemplate(userId) {
   try {
-    console.log("Attempting to fetch template for user ID:", userId);
+    if (!userId) {
+      console.warn("No user ID provided for template fetch");
+      return null;
+    }
+
+    console.log("Fetching templates for user ID:", userId);
     
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/prompt_templates?select=*`, {
-      method: 'GET',
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'Content-Type': 'application/json'
+    const { data, error } = await fetch(
+      `${SUPABASE_URL}/rest/v1/prompt_templates?select=*&user_id=eq.${userId}`,
+      {
+        method: 'GET',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': 'application/json'
+        }
       }
-    });
+    ).then(response => {
+      if (!response.ok) {
+        throw new Error(`Failed to fetch templates: ${response.status}`);
+      }
+      return response.json().then(data => ({ data }));
+    }).catch(error => ({ error }));
     
-    if (!response.ok) {
-      console.error('Failed to fetch templates:', response.status);
+    if (error) {
+      console.error('Error fetching templates:', error);
       return null;
     }
     
-    const templates = await response.json();
-    console.log('All fetched templates:', templates);
+    console.log("User templates:", data);
     
-    // Just return the first template found
-    if (templates && templates.length > 0) {
-      const template = templates[0];
-      console.log("Using template:", template);
-      return template;
+    if (data && data.length > 0) {
+      // Try to find default template first
+      const defaultTemplate = data.find(t => t.is_default);
+      const selectedTemplate = defaultTemplate || data[0];
+      
+      console.log("Using template:", selectedTemplate);
+      return selectedTemplate;
     }
     
     return null;
   } catch (error) {
-    console.error('Error fetching template:', error);
+    console.error('Error in getPromptTemplate:', error);
     return null;
   }
 }
@@ -79,16 +83,21 @@ async function generatePersonalizedMessage(pageInfo, resumeData, jobData) {
   try {
     console.log("Processing resume data:", resumeData);
     console.log("Processing job data:", jobData);
+    console.log("Processing company data:", pageInfo.company);
     
-    // Get API key from local storage
-    const apiKey = await getApiKey();
+    // Use the hardcoded API key
+    const apiKey = GEMINI_API_KEY;
     
     if (!apiKey) {
       throw new Error("Gemini API key not found. Please add it in the extension options.");
     }
 
-    // Get prompt template - simplified to fetch any template
-    const promptTemplate = await getPromptTemplate();
+    // Get userId from resumeData if available
+    const userId = resumeData.userId || null;
+    console.log("Using user ID for template:", userId);
+
+    // Get prompt template with the user ID
+    const promptTemplate = await getPromptTemplate(userId);
     console.log("Fetched template:", promptTemplate);
 
     const prompt = buildPrompt(pageInfo, resumeData, jobData, promptTemplate);
@@ -135,17 +144,16 @@ async function generatePersonalizedMessage(pageInfo, resumeData, jobData) {
 
 function buildPrompt(pageInfo, resumeData, jobData, promptTemplate) {
   console.log("Building prompt with recipient name:", pageInfo.name);
+  console.log("Building prompt with company name:", pageInfo.company);
   
   // Ensure we have a name for the recipient
-  const recipientName = pageInfo.name && pageInfo.name !== "Unknown from content.js" 
-    ? pageInfo.name 
-    : "Hiring Manager";
+  const recipientName = pageInfo.name || "Hiring Manager";
   
   // Ensure we have a company name
   const companyName = pageInfo.company || jobData?.jobCompany || "your company";
   
   console.log("Final recipient name used in prompt:", recipientName);
-  console.log("Company name used in prompt:", companyName);
+  console.log("Final company name used in prompt:", companyName);
   
   // Use the template if available, otherwise use default
   const templateName = promptTemplate?.name || "Default Template";
@@ -194,9 +202,4 @@ IMPORTANT INSTRUCTIONS:
 
 Format the message as plain text, ready to be copied directly to LinkedIn.
 `;
-}
-
-async function getApiKey() {
-  // For demo purposes, use a fixed API key
-  return import.meta.env.VITE_GEMINI_API_KEY; // Gemini API key
 } 
