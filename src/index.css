@@ -1,0 +1,55 @@
+/* Import Tailwind for v4 */
+@import "tailwindcss";
+
+:root {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: light;
+  color: #213547;
+  background-color: #ffffff;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  width: 400px;
+  height: 500px;
+  overflow: hidden;
+  background-color: #ffffff;
+}
+
+/* Chrome extension specific styles */
+html {
+  width: 400px;
+  height: 500px;
+  overflow: hidden;
+}
+
+#root {
+  width: 400px;
+  height: 500px;
+  overflow: hidden;
+}
+
+/* Remove default button styling that conflicts with Tailwind */
+button {
+  font-family: inherit;
+}
+
+/* Keep base styles minimal to avoid conflicts with Tailwind */
+a {
+  text-decoration: none;
+}
+
+/* Override any system dark mode preferences to ensure light theme */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
+}
