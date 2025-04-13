@@ -165,7 +165,6 @@ ${templateContent}
 
 IMPORTANT INSTRUCTIONS:
 - EXACTLY follow the user's template requirement above. 
-- If the template is "WRITE IN ALL CAPS", then make the ENTIRE message in ALL CAPS.
 - If the template specifies any formatting, structure, or style, strictly adhere to it.
 - The message should highlight relevant skills and experiences from the sender's resume.
 - Include a specific observation about the recipient or company.
