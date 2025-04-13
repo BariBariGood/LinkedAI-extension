@@ -13,6 +13,18 @@ type Resume = {
   updated_at: string;
 }
 
+type GeneratedMessage = {
+  id?: string;
+  created_at?: string;
+  user_id: string;
+  message: string;
+  recipient_name: string;
+  recipient_title?: string;
+  recipient_company?: string;
+  resume_id: string;
+  url?: string;
+}
+
 function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,6 +32,8 @@ function Home() {
   const [resumes, setResumes] = useState<Resume[]>([]);
   const [selectedResume, setSelectedResume] = useState<Resume | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [savedMessage, setSavedMessage] = useState(false);
+  const [savingMessage, setSavingMessage] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -66,6 +80,50 @@ function Home() {
     }
   };
 
+  const saveMessageToSupabase = async (messageText: string, pageInfo: PageInfo, resumeId: string) => {
+    try {
+      setSavingMessage(true);
+      
+      // Get current user
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError) throw userError;
+      if (!user) {
+        throw new Error("User not authenticated");
+      }
+      
+      // Create message object
+      const messageData: GeneratedMessage = {
+        user_id: user.id,
+        message: messageText,
+        recipient_name: pageInfo.name || "Unknown",
+        recipient_title: pageInfo.jobTitle,
+        recipient_company: pageInfo.company,
+        resume_id: resumeId,
+        url: pageInfo.url
+      };
+      
+      console.log("Saving message to Supabase:", messageData);
+      
+      // Save to Supabase
+      const { data, error } = await supabase
+        .from('generated_messages')
+        .insert(messageData)
+        .select();
+        
+      if (error) throw error;
+      
+      console.log("Message saved successfully:", data);
+      setSavedMessage(true);
+      
+    } catch (err) {
+      console.error("Error saving message:", err);
+      // Don't show error to user, just log it
+    } finally {
+      setSavingMessage(false);
+    }
+  };
+
   const generateColdMessage = async () => {
     if (!selectedResume) {
       setError("Please select a resume first");
@@ -75,6 +133,7 @@ function Home() {
     setGenerating(true);
     setError(null);
     setMessage(null);
+    setSavedMessage(false);
     
     try {
       // Get current tab information
@@ -103,12 +162,16 @@ function Home() {
             action: "generateMessage",
             pageInfo: pageInfo,
             resumeData: selectedResume.parsed_data
-          }, (response) => {
+          }, async (response) => {
             console.log("Response from Gemini:", response);
             if (response.error) {
               setError(response.error);
             } else {
               setMessage(response.message);
+              // Save message to Supabase
+              if (selectedResume.id && response.message) {
+                await saveMessageToSupabase(response.message, pageInfo, selectedResume.id);
+              }
             }
             setGenerating(false);
           });
@@ -266,17 +329,35 @@ function Home() {
             <div className="bg-white border border-gray-200 rounded-md overflow-hidden mb-3">
               <div className="border-b border-gray-200 px-3 py-2 bg-gray-50 flex justify-between items-center">
                 <h3 className="text-sm font-medium text-gray-700">Generated Message</h3>
-                <button 
-                  onClick={() => {
-                    navigator.clipboard.writeText(message);
-                  }}
-                  className="flex items-center px-3 py-1.5 text-xs bg-blue-600 text-white hover:bg-blue-700 rounded-md transition-colors duration-200 shadow-sm"
-                >
-                  <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path>
-                  </svg>
-                  Copy
-                </button>
+                <div className="flex items-center space-x-2">
+                  {savedMessage && (
+                    <span className="text-xs text-green-600 flex items-center">
+                      <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                      </svg>
+                      Saved
+                    </span>
+                  )}
+                  {savingMessage && (
+                    <span className="text-xs text-blue-600 flex items-center">
+                      <svg className="animate-spin w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                      </svg>
+                      Saving
+                    </span>
+                  )}
+                  <button 
+                    onClick={() => {
+                      navigator.clipboard.writeText(message);
+                    }}
+                    className="flex items-center px-3 py-1.5 text-xs bg-blue-600 text-white hover:bg-blue-700 rounded-md transition-colors duration-200 shadow-sm"
+                  >
+                    <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path>
+                    </svg>
+                    Copy
+                  </button>
+                </div>
               </div>
               <div className="p-3 overflow-y-auto" style={{ maxHeight: "230px" }}>
                 <p className="text-sm text-gray-800 whitespace-pre-wrap">
