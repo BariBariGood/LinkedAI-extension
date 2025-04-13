@@ -211,13 +211,41 @@ function Home() {
         throw new Error("User not authenticated");
       }
       
+      // Debug log the page info
+      console.log("DEBUGGING - pageInfo for Supabase:", {
+        name: pageInfo.name,
+        title: pageInfo.title,
+        jobTitle: pageInfo.jobTitle,
+        company: pageInfo.company,
+        url: pageInfo.url
+      });
+      
+      // Try to extract name from LinkedIn page title if we don't have one
+      let recipientName = pageInfo.name || "";
+      
+      if (!recipientName && pageInfo.title && pageInfo.title.includes(" | LinkedIn")) {
+        const titleParts = pageInfo.title.split(" | ")[0].split(" - ");
+        if (titleParts.length > 0) {
+          recipientName = titleParts[0].trim();
+          console.log("Extracted name from page title for Supabase:", recipientName);
+        }
+      }
+      
+      // Final fallback if we still don't have a name
+      if (!recipientName) {
+        recipientName = "Unknown Recipient";
+        console.log("No name found, using fallback:", recipientName);
+      }
+      
+      console.log("FINAL recipient name for database:", recipientName);
+      
       // Create message object
       const messageData: GeneratedMessage = {
         user_id: user.id,
         message: messageText,
-        recipient_name: pageInfo.name || "Unknown",
-        recipient_title: pageInfo.jobTitle,
-        recipient_company: pageInfo.company,
+        recipient_name: recipientName,
+        recipient_title: pageInfo.jobTitle || undefined,
+        recipient_company: pageInfo.company || undefined,
         resume_id: resumeId,
         url: pageInfo.url,
         job_id: jobId

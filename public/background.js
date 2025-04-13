@@ -6,21 +6,34 @@ const SUPABASE_URL = "https://okeurgyhsrgcidiqubbe.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9rZXVyZ3loc3JnY2lkaXF1YmJlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTMzMTEzNzgsImV4cCI6MjAyODg4NzM3OH0.Hg3FY4ImTEJ_tKQEpYNM_PkxFfBE9wsfTU4oCswKhM0";
 
 // Listen for messages from the popup
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === "generateMessage") {
-    console.log("Background received message:", message);
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "generateMessage") {
+    console.log("Generating message with pageInfo:", request.pageInfo);
+    console.log("IMPORTANT - Recipient Name from pageInfo:", request.pageInfo.name);
     
-    generatePersonalizedMessage(message.pageInfo, message.resumeData, message.jobData)
+    // Ensure we have a name before proceeding
+    if (!request.pageInfo.name || request.pageInfo.name === "Unknown from content.js") {
+      console.error("Missing recipient name - attempting to extract from title");
+      
+      // Try to get name from title as fallback
+      if (request.pageInfo.title && request.pageInfo.title.includes(" | LinkedIn")) {
+        const titleParts = request.pageInfo.title.split(" | ")[0].split(" - ");
+        if (titleParts.length > 0) {
+          request.pageInfo.name = titleParts[0].trim();
+          console.log("Extracted name from page title as fallback:", request.pageInfo.name);
+        }
+      }
+    }
+    
+    generatePersonalizedMessage(request.pageInfo, request.resumeData, request.jobData)
       .then(result => {
-        console.log("Generated message:", result);
+        console.log("Message generated successfully");
         sendResponse({ message: result });
       })
       .catch(error => {
         console.error("Error generating message:", error);
-        sendResponse({ error: error.message || "Failed to generate message" });
+        sendResponse({ error: error.message });
       });
-    
-    // Return true to indicate we'll respond asynchronously
     return true;
   }
 });
@@ -120,38 +133,41 @@ async function generatePersonalizedMessage(pageInfo, resumeData, jobData) {
 }
 
 function buildPrompt(pageInfo, resumeData, jobData, promptTemplate) {
-  console.log("Building prompt with template:", promptTemplate);
+  console.log("Building prompt with recipient name:", pageInfo.name);
   
-  // Build job specific context section
-  let jobContext = '';
+  // Ensure we have a name for the recipient
+  const recipientName = pageInfo.name && pageInfo.name !== "Unknown from content.js" 
+    ? pageInfo.name 
+    : "Hiring Manager";
+  
+  // Ensure we have a company name
+  const companyName = pageInfo.company || jobData?.jobCompany || "your company";
+  
+  console.log("Final recipient name used in prompt:", recipientName);
+  console.log("Company name used in prompt:", companyName);
+  
+  // Use the template if available, otherwise use default
+  const templateName = promptTemplate?.name || "Default Template";
+  const templateContent = promptTemplate?.content || "Hi [Name],\n\nI noticed your profile and I'm interested in connecting to discuss potential opportunities at [Company]. I have experience in [relevant skills] which aligns well with your organization's needs.\n\nWould you be open to a brief conversation?\n\nBest regards,\n[Your Name]";
+  
+  // Create job context if job data is available
+  let jobContext = "";
   if (jobData && (jobData.jobTitle || jobData.jobDescription)) {
     jobContext = `
 JOB DETAILS:
-${jobData.jobTitle ? `- Title: ${jobData.jobTitle}` : ''}
-${jobData.jobId ? `- Job ID: ${jobData.jobId}` : ''}
-${jobData.jobDescription ? `- Description: ${jobData.jobDescription}` : ''}
+- Title: ${jobData.jobTitle || ""}
+- ID: ${jobData.jobId || ""}
+- Company: ${jobData.jobCompany || pageInfo.company || ""}
+- Description: ${jobData.jobDescription || ""}
 `;
   }
   
-  // SIMPLIFIED TEMPLATE HANDLING
-  // Just extract the content directly
-  let templateContent = 'No template specified';
-  let templateName = 'Default';
-  
-  if (promptTemplate && promptTemplate.content) {
-    templateContent = promptTemplate.content;
-    templateName = promptTemplate.name || 'Custom Template';
-    console.log(`Using template "${templateName}": ${templateContent}`);
-  }
-  
-  return `
-You are an AI assistant helping a job seeker create a personalized cold message to a recruiter or hiring manager. 
-Please craft a message based on the information below.
+  return `Generate a personalized message for a LinkedIn connection request or cold outreach. The message should be professional, concise, and highlight the sender's relevant experience.
 
 ABOUT THE RECIPIENT:
-- Name: ${pageInfo.name || "Hiring Manager"}
+- Name: ${recipientName}
 - Title: ${pageInfo.jobTitle || ""}
-- Company: ${pageInfo.company || ""}
+- Company: ${companyName}
 - Page URL: ${pageInfo.url || ""}
 ${jobContext}
 ABOUT THE SENDER (Full Resume):
@@ -167,8 +183,10 @@ IMPORTANT INSTRUCTIONS:
 - EXACTLY follow the user's template requirement above. 
 - If the template specifies any formatting, structure, or style, strictly adhere to it.
 - The message should highlight relevant skills and experiences from the sender's resume.
-- Include a specific observation about the recipient or company.
+- ALWAYS mention the company name (${companyName}) in the message and include specific context about the company.
+- Reference something specific about the company that demonstrates your research or interest.
 - If job details are provided, show how the sender's experience aligns with those requirements.
+- Always personalize the message with the recipient's name (${recipientName}) where appropriate.
 - End with a clear call to action.
 - Do not include salutations (like "Dear X") or closings (like "Sincerely").
 - Focus on providing value rather than asking for a job.
