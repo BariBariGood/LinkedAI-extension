@@ -79,35 +79,6 @@ async function generatePersonalizedMessage(pageInfo, resumeData) {
 function buildPrompt(pageInfo, resumeData) {
   console.log("Building prompt with resume data:", resumeData);
   
-  // Format resume data into a string - Handle potential missing or malformed data
-  const skills = Array.isArray(resumeData?.skills) ? resumeData.skills : [];
-  const experience = Array.isArray(resumeData?.experience) ? resumeData.experience : [];
-  const education = Array.isArray(resumeData?.education) ? resumeData.education : [];
-  
-  let skillsText = "Various technical skills";
-  if (skills.length > 0) {
-    skillsText = skills.join(", ");
-  }
-
-  let formattedExperience = "Professional experience in relevant fields";
-  if (experience.length > 0) {
-    formattedExperience = experience.map(exp => {
-      const jobTitle = exp.jobTitle || exp.title || exp.position || 'Position';
-      const company = exp.company || exp.organization || exp.employer || 'Company';
-      const description = exp.description || exp.responsibilities || exp.details || 'Worked on various projects';
-      return `- ${jobTitle} at ${company}: ${description}`;
-    }).join("\n");
-  }
-  
-  let educationText = "";
-  if (education.length > 0) {
-    educationText = "Education:\n" + education.map(edu => {
-      const degree = edu.degree || edu.qualification || 'Degree';
-      const institution = edu.institution || edu.school || edu.university || 'Institution';
-      return `- ${degree} from ${institution}`;
-    }).join("\n");
-  }
-  
   return `
 You are an AI assistant helping a job seeker create a personalized cold message to a recruiter or hiring manager. 
 Please craft a concise, professional, and engaging message based on the following information.
@@ -118,11 +89,8 @@ ABOUT THE RECIPIENT:
 - Company: ${pageInfo.company || ""}
 - Page URL: ${pageInfo.url || ""}
 
-ABOUT THE SENDER (Resume Data):
-- Skills: ${skillsText}
-- Experience: 
-${formattedExperience}
-${educationText}
+ABOUT THE SENDER (Full Resume):
+${resumeData.rawText || ""}
 
 ADDITIONAL CONTEXT FROM THE PAGE:
 ${pageInfo.pageContent?.substring(0, 500) || ""}
@@ -130,13 +98,12 @@ ${pageInfo.pageContent?.substring(0, 500) || ""}
 INSTRUCTIONS:
 1. Write a personalized cold message addressed to the recipient.
 2. The message should be concise (about 150-200 words).
-3. Highlight specific skills and experience from the resume that are relevant to the company or role.
-4. Include a specific observation about the recipient or company to show you've done your research.
+3. Highlight the most relevant skills, projects, and experiences from the resume that would interest this specific company/role.
+4. Include a specific observation about the recipient or company to show research.
 5. End with a call to action for a meeting or conversation.
 6. Be professional but friendly.
 7. Do not include any salutation at the beginning (like "Dear X") or closing (like "Sincerely").
 8. Focus on providing value rather than asking for a job.
-9. DO NOT include placeholders like [Skill 1] or [Work experience] - use the actual data provided.
 
 Format the message as plain text, ready to be copied directly to LinkedIn, email, or messaging app.
 `;
@@ -145,5 +112,5 @@ Format the message as plain text, ready to be copied directly to LinkedIn, email
 async function getApiKey() {
   // For demo purposes, use a fixed API key
   // In a production extension, this should be stored securely
-  return "AIzaSyBoUFrv1UzBWha0J3X51k9Lmd-UmH3y1mA"; // Gemini API key
+  return "AIzaSyBIhVMhMbjY6TAaKB2fnOPJGq-1TLW8glk"; // Gemini API key
 } 
