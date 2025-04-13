@@ -5,12 +5,18 @@ import { supabase } from '../lib/supabase';
 type Resume = {
   id: string;
   created_at: string;
-  user_id: string;
   filename: string;
-  file_url?: string;
-  file_type?: string;
+  user_id: string;
   parsed_data: any;
-  updated_at: string;
+}
+
+type PageInfo = {
+  url?: string;
+  title?: string;
+  name?: string;
+  jobTitle?: string;
+  company?: string;
+  pageContent?: string;
 }
 
 type GeneratedMessage = {
@@ -23,6 +29,31 @@ type GeneratedMessage = {
   recipient_company?: string;
   resume_id: string;
   url?: string;
+  job_id?: string;
+}
+
+type Job = {
+  id?: string;
+  created_at?: string;
+  user_id: string;
+  job_title: string;
+  job_id?: string;
+  company?: string;
+  job_description?: string;
+  job_url?: string;
+  status?: string;
+}
+
+type PromptTemplate = {
+  id: string;
+  user_id: string;
+  name: string;
+  description?: string;
+  template_type: 'description' | 'example';
+  content: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 function Home() {
@@ -34,6 +65,18 @@ function Home() {
   const [generating, setGenerating] = useState(false);
   const [savedMessage, setSavedMessage] = useState(false);
   const [savingMessage, setSavingMessage] = useState(false);
+  
+  // Job details state
+  const [jobTitle, setJobTitle] = useState('');
+  const [jobId, setJobId] = useState('');
+  const [jobDescription, setJobDescription] = useState('');
+  const [showJobDetails, setShowJobDetails] = useState(false);
+  const [savedJobId, setSavedJobId] = useState<string | null>(null);
+  
+  // Template state
+  const [template, setTemplate] = useState<PromptTemplate | null>(null);
+  const [loadingTemplate, setLoadingTemplate] = useState(false);
+  
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -61,6 +104,9 @@ function Home() {
         if (resumeData.length > 0) {
           setSelectedResume(resumeData[0]);
         }
+        
+        // Fetch user's template
+        fetchUserTemplate(user.id);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch resume data');
       } finally {
@@ -70,6 +116,36 @@ function Home() {
 
     fetchResumes();
   }, [navigate]);
+  
+  const fetchUserTemplate = async (userId: string) => {
+    setLoadingTemplate(true);
+    try {
+      // Fetch templates
+      const { data, error } = await supabase
+        .from('prompt_templates')
+        .select('*')
+        .eq('user_id', userId);
+        
+      if (error) throw error;
+      
+      console.log("User templates:", data);
+      
+      if (data && data.length > 0) {
+        // Try to find default template first
+        const defaultTemplate = data.find(t => t.is_default);
+        if (defaultTemplate) {
+          setTemplate(defaultTemplate);
+        } else {
+          // Otherwise use the first template
+          setTemplate(data[0]);
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching template:", err);
+    } finally {
+      setLoadingTemplate(false);
+    }
+  };
 
   const handleSignOut = async () => {
     try {
@@ -80,7 +156,48 @@ function Home() {
     }
   };
 
-  const saveMessageToSupabase = async (messageText: string, pageInfo: PageInfo, resumeId: string) => {
+  const saveJobToSupabase = async (pageInfo: PageInfo): Promise<string | null> => {
+    try {
+      if (!jobTitle.trim()) return null;
+      
+      // Get current user
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError) throw userError;
+      if (!user) {
+        throw new Error("User not authenticated");
+      }
+      
+      // Create job object
+      const jobData: Job = {
+        user_id: user.id,
+        job_title: jobTitle.trim(),
+        job_id: jobId.trim() || undefined,
+        company: pageInfo.company || undefined,
+        job_description: jobDescription.trim() || undefined,
+        job_url: pageInfo.url
+      };
+      
+      console.log("Saving job to Supabase:", jobData);
+      
+      // Save to Supabase
+      const { data, error } = await supabase
+        .from('jobs')
+        .insert(jobData)
+        .select();
+        
+      if (error) throw error;
+      
+      console.log("Job saved successfully:", data);
+      return data[0].id;
+      
+    } catch (err) {
+      console.error("Error saving job:", err);
+      return null;
+    }
+  };
+
+  const saveMessageToSupabase = async (messageText: string, pageInfo: PageInfo, resumeId: string, jobId?: string) => {
     try {
       setSavingMessage(true);
       
@@ -100,7 +217,8 @@ function Home() {
         recipient_title: pageInfo.jobTitle,
         recipient_company: pageInfo.company,
         resume_id: resumeId,
-        url: pageInfo.url
+        url: pageInfo.url,
+        job_id: jobId
       };
       
       console.log("Saving message to Supabase:", messageData);
@@ -134,16 +252,32 @@ function Home() {
     setError(null);
     setMessage(null);
     setSavedMessage(false);
+    setSavedJobId(null);
     
     try {
+      // Get current user
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError) throw userError;
+      if (!user) {
+        throw new Error("User not authenticated");
+      }
+      
       // Get current tab information
       chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
         if (!tabs[0]?.id) {
           throw new Error("Could not find active tab");
         }
         
-        // Debug log to console
+        console.log("User ID:", user.id);
+        console.log("Resume user ID:", selectedResume.user_id);
         console.log("Resume data being sent:", selectedResume.parsed_data);
+        
+        // Add user ID to resume data for template lookup
+        const resumeDataWithUser = {
+          ...selectedResume.parsed_data,
+          userId: user.id // Use the current user ID to ensure we get their template
+        };
         
         // Execute script to scrape the page
         chrome.scripting.executeScript({
@@ -157,11 +291,23 @@ function Home() {
           const pageInfo = results[0].result as PageInfo;
           console.log("Page info scraped:", pageInfo);
           
+          // Save job information first if available
+          let savedJobId = null;
+          if (jobTitle.trim() || jobDescription.trim()) {
+            savedJobId = await saveJobToSupabase(pageInfo);
+            setSavedJobId(savedJobId);
+          }
+          
           // Send to background script to call Gemini API
           chrome.runtime.sendMessage({
             action: "generateMessage",
             pageInfo: pageInfo,
-            resumeData: selectedResume.parsed_data
+            resumeData: resumeDataWithUser,
+            jobData: {
+              jobTitle: jobTitle.trim(),
+              jobId: jobId.trim(),
+              jobDescription: jobDescription.trim()
+            }
           }, async (response) => {
             console.log("Response from Gemini:", response);
             if (response.error) {
@@ -170,7 +316,7 @@ function Home() {
               setMessage(response.message);
               // Save message to Supabase
               if (selectedResume.id && response.message) {
-                await saveMessageToSupabase(response.message, pageInfo, selectedResume.id);
+                await saveMessageToSupabase(response.message, pageInfo, selectedResume.id, savedJobId || undefined);
               }
             }
             setGenerating(false);
@@ -183,53 +329,15 @@ function Home() {
     }
   };
 
-  // Function that will be injected into the page
-  function scrapePageInfo() {
-    // Try to determine if we're on LinkedIn
-    const isLinkedIn = window.location.hostname.includes('linkedin.com');
-    
-    let name = '';
-    let title = '';
-    let company = '';
-    let pageContent = '';
-    
-    if (isLinkedIn) {
-      // LinkedIn specific selectors
-      const nameElement = document.querySelector('.text-heading-xlarge');
-      const titleElement = document.querySelector('.text-body-medium');
-      const companyElements = document.querySelectorAll('span.text-body-small.inline.t-black--light.break-words');
-      
-      name = nameElement ? nameElement.textContent?.trim() || '' : '';
-      title = titleElement ? titleElement.textContent?.trim() || '' : '';
-      
-      if (companyElements && companyElements.length > 0) {
-        company = companyElements[0].textContent?.trim() || '';
-      }
-    }
-    
-    // Fallback to generic page info
-    if (!name) name = document.title;
-    pageContent = document.body.innerText.substring(0, 5000); // Limit text length
-    
-    return {
-      url: window.location.href,
-      title: document.title,
-      name,
-      jobTitle: title,
-      company,
-      pageContent
-    };
-  }
-
   if (loading) {
     return (
-      <div className="w-[400px] h-[500px] flex items-center justify-center bg-white">
-        <div className="flex flex-col items-center">
-          <svg className="animate-spin h-8 w-8 text-blue-600 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+      <div className="w-[400px] h-[500px] flex items-center justify-center bg-white p-4">
+        <div className="text-center">
+          <svg className="animate-spin h-8 w-8 text-blue-600 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
-          <p className="text-gray-700">Loading your data...</p>
+          <p className="text-gray-600">Loading your resume data...</p>
         </div>
       </div>
     );
@@ -300,9 +408,86 @@ function Home() {
         </div>
         
         {/* Message generator */}
-        <div className="p-4">
-          <div className="mb-4 text-center">
+        <div className="p-4 overflow-y-auto">
+          <div className="mb-4">
             <p className="text-sm text-gray-700 mb-2">Generate a personalized cold message for the recruiter based on the current page and your resume.</p>
+            
+            {/* Job details section */}
+            <div className="mb-3">
+              <div className="flex justify-between items-center mb-2">
+                <button
+                  onClick={() => setShowJobDetails(!showJobDetails)}
+                  className="text-xs flex items-center text-blue-600 hover:text-blue-800"
+                >
+                  <svg className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    {showJobDetails ? (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                    ) : (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                    )}
+                  </svg>
+                  {showJobDetails ? "Hide job details" : "Add job details (optional)"}
+                </button>
+                {savedJobId && (
+                  <span className="text-xs text-green-600 flex items-center">
+                    <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    Job saved
+                  </span>
+                )}
+              </div>
+              
+              {showJobDetails && (
+                <div className="bg-gray-50 p-3 rounded-md border border-gray-200 mb-3 space-y-2">
+                  <div>
+                    <label htmlFor="jobTitle" className="block text-xs font-medium text-gray-700 mb-1">
+                      Job Title <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      id="jobTitle"
+                      type="text"
+                      value={jobTitle}
+                      onChange={(e) => setJobTitle(e.target.value)}
+                      placeholder="e.g. Frontend Developer"
+                      className="w-full py-1 px-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      disabled={generating}
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="jobId" className="block text-xs font-medium text-gray-700 mb-1">
+                      Job ID
+                    </label>
+                    <input
+                      id="jobId"
+                      type="text"
+                      value={jobId}
+                      onChange={(e) => setJobId(e.target.value)}
+                      placeholder="e.g. JOB-123456"
+                      className="w-full py-1 px-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      disabled={generating}
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="jobDescription" className="block text-xs font-medium text-gray-700 mb-1">
+                      Job Description
+                    </label>
+                    <textarea
+                      id="jobDescription"
+                      value={jobDescription}
+                      onChange={(e) => setJobDescription(e.target.value)}
+                      placeholder="Paste key requirements or qualifications from the job posting"
+                      className="w-full py-1 px-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      rows={3}
+                      disabled={generating}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+            
             <button
               onClick={generateColdMessage}
               disabled={generating || !selectedResume}
@@ -322,6 +507,43 @@ function Home() {
                 </span>
               ) : 'Generate Cold Message'}
             </button>
+            
+            {/* Display current template */}
+            {template && (
+              <div className="mt-3 bg-blue-50 border border-blue-200 rounded-md p-2">
+                <div className="flex justify-between items-center mb-1">
+                  <h4 className="text-xs font-medium text-blue-700">Current Template: {template.name}</h4>
+                  <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded">
+                    {template.template_type === 'description' ? 'Format' : 'Example'}
+                  </span>
+                </div>
+                <div className="text-xs bg-white border border-blue-100 rounded p-2 max-h-20 overflow-y-auto">
+                  <p className="text-gray-700 whitespace-pre-wrap">{template.content}</p>
+                </div>
+                <div className="flex justify-end mt-1">
+                  <a 
+                    href="https://linkedai.vercel.app/templates" 
+                    target="_blank"
+                    rel="noopener noreferrer" 
+                    className="text-xs text-blue-600 hover:text-blue-800"
+                  >
+                    Edit template
+                  </a>
+                </div>
+              </div>
+            )}
+            
+            {loadingTemplate && (
+              <div className="mt-3 bg-gray-50 border border-gray-200 rounded-md p-3 flex justify-center">
+                <span className="text-xs text-gray-500 flex items-center">
+                  <svg className="animate-spin w-3 h-3 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Loading template...
+                </span>
+              </div>
+            )}
           </div>
           
           {/* Display generated message */}
@@ -359,17 +581,11 @@ function Home() {
                   </button>
                 </div>
               </div>
-              <div className="p-3 overflow-y-auto" style={{ maxHeight: "230px" }}>
+              <div className="p-3 overflow-y-auto" style={{ maxHeight: "180px" }}>
                 <p className="text-sm text-gray-800 whitespace-pre-wrap">
                   {message}
                 </p>
               </div>
-            </div>
-          )}
-          
-          {error && message && (
-            <div className="mt-2 text-xs text-red-600 p-2 bg-red-50 rounded">
-              <p>{error}</p>
             </div>
           )}
           
@@ -395,14 +611,15 @@ function Home() {
   );
 }
 
-// Type for scraped page information
-interface PageInfo {
-  url: string;
-  title: string;
-  name: string; 
-  jobTitle: string;
-  company: string;
-  pageContent: string;
-}
+export default Home;
 
-export default Home; 
+// This function is used by chrome.scripting.executeScript
+// Must be defined at module level
+function scrapePageInfo() {
+  // This function is injected into the page and executed there
+  // Implementation will be provided by content.js
+  return { 
+    url: window.location.href,
+    title: document.title
+  };
+} 
