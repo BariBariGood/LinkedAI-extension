@@ -1,5 +1,6 @@
 // Background script for the LinkedAI extension
 // Handles the Gemini API calls for generating cold messages
+import { VITE_GEMINI_API_KEY } from '../.env';
 
 const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
 const SUPABASE_URL = "https://okeurgyhsrgcidiqubbe.supabase.co";
@@ -197,5 +198,5 @@ Format the message as plain text, ready to be copied directly to LinkedIn.
 
 async function getApiKey() {
   // For demo purposes, use a fixed API key
-  return "AIzaSyBIhVMhMbjY6TAaKB2fnOPJGq-1TLW8glk"; // Gemini API key
+  return import.meta.env.VITE_GEMINI_API_KEY; // Gemini API key
 } 
