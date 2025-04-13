@@ -25,6 +25,24 @@ function Home() {
   const [generating, setGenerating] = useState(false);
   const [savedMessage, setSavedMessage] = useState(false);
   const [savingMessage, setSavingMessage] = useState(false);
+  // Debug info state - commented out since no longer displaying debug info
+  /* const [debugInfo, setDebugInfo] = useState<{
+    jobSaveAttempted: boolean;
+    jobSaveSuccess: boolean;
+    messageSaveAttempted: boolean;
+    messageSaveSuccess: boolean;
+    jobId: string | null;
+    error: string | null;
+    lastAction: string;
+  }>({
+    jobSaveAttempted: false,
+    jobSaveSuccess: false,
+    messageSaveAttempted: false,
+    messageSaveSuccess: false,
+    jobId: null,
+    error: null,
+    lastAction: 'none'
+  }); */
   const navigate = useNavigate();
   
   // Job details state
@@ -81,15 +99,28 @@ function Home() {
   };
   
   const saveJobToSupabase = async (pageInfo: PageInfo): Promise<string | null> => {
+    // setDebugInfo(prev => ({ ...prev, jobSaveAttempted: true, lastAction: 'saveJob:start' }));
     try {
-      if (!jobTitle.trim()) return null;
+      if (!jobTitle.trim()) {
+        console.log("DEBUG: Job title empty, not saving");
+        // setDebugInfo(prev => ({ ...prev, error: "Job title empty", lastAction: 'saveJob:emptyTitle' }));
+        return null;
+      }
       
       // Get current user
+      console.log("DEBUG: Getting user for job save");
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       
-      if (userError) throw userError;
+      if (userError) {
+        console.error("DEBUG: User auth error:", userError);
+        // setDebugInfo(prev => ({ ...prev, error: `Auth error: ${userError.message}`, lastAction: 'saveJob:userError' }));
+        return null;
+      }
+      
       if (!user) {
-        throw new Error("User not authenticated");
+        console.error("DEBUG: No authenticated user found");
+        // setDebugInfo(prev => ({ ...prev, error: "No authenticated user", lastAction: 'saveJob:noUser' }));
+        return null;
       }
       
       // Create job object
@@ -102,7 +133,8 @@ function Home() {
         job_url: pageInfo.url
       };
       
-      console.log("Saving job to Supabase:", jobData);
+      console.log("DEBUG: Saving job to Supabase:", jobData);
+      // setDebugInfo(prev => ({ ...prev, lastAction: 'saveJob:inserting' }));
       
       // Save to Supabase
       const { data, error } = await supabase
@@ -110,49 +142,138 @@ function Home() {
         .insert(jobData)
         .select();
         
-      if (error) throw error;
+      if (error) {
+        console.error("DEBUG: Supabase error saving job:", error);
+        // setDebugInfo(prev => ({ 
+        //   ...prev, 
+        //   error: `DB error: ${error.code || error.message}`,
+        //   lastAction: 'saveJob:dbError' 
+        // }));
+        return null;
+      }
       
-      console.log("Job saved successfully:", data);
+      if (!data || data.length === 0) {
+        console.error("DEBUG: No data returned after saving job");
+        // setDebugInfo(prev => ({ 
+        //   ...prev, 
+        //   error: "No data after job save",
+        //   lastAction: 'saveJob:noData' 
+        // }));
+        return null;
+      }
+      
+      console.log("DEBUG: Job saved successfully:", data);
       setSavedJobId(data[0].id);
+      // setDebugInfo(prev => ({ 
+      //   ...prev, 
+      //   jobSaveSuccess: true,
+      //   jobId: data[0].id,
+      //   lastAction: 'saveJob:success' 
+      // }));
       return data[0].id;
       
     } catch (err) {
-      console.error("Error saving job:", err);
+      console.error("DEBUG: Error saving job:", err);
+      // setDebugInfo(prev => ({ 
+      //   ...prev, 
+      //   error: `Job save error: ${err instanceof Error ? err.message : String(err)}`,
+      //   lastAction: 'saveJob:exception' 
+      // }));
       return null;
     }
   };
   
-  const saveMessageToSupabase = async (messageText: string, pageInfo: PageInfo, resumeId: string, jobId?: string) => {
+  const saveMessageToSupabase = async (messageText: string, pageInfo: PageInfo, resumeId: string, jobId?: string): Promise<boolean> => {
+    // setDebugInfo(prev => ({ ...prev, messageSaveAttempted: true, lastAction: 'saveMessage:start' }));
     try {
       setSavingMessage(true);
       
       // Get current user
+      console.log("DEBUG: Getting user for message save");
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       
-      if (userError) throw userError;
-      if (!user) {
-        throw new Error("User not authenticated");
+      if (userError) {
+        console.error("DEBUG: User auth error for message:", userError);
+        // setDebugInfo(prev => ({ 
+        //   ...prev, 
+        //   error: `Auth error: ${userError.message}`,
+        //   lastAction: 'saveMessage:authError' 
+        // }));
+        return false;
       }
+      
+      if (!user) {
+        console.error("DEBUG: No authenticated user for message");
+        // setDebugInfo(prev => ({ 
+        //   ...prev, 
+        //   error: "No authenticated user",
+        //   lastAction: 'saveMessage:noUser' 
+        // }));
+        return false;
+      }
+      
+      // Check if the resume exists in the database
+      console.log("DEBUG: Verifying resume_id exists:", resumeId);
+      const { data: resumeData, error: resumeError } = await supabase
+        .from('resumes')
+        .select('id')
+        .eq('id', resumeId)
+        .single();
+        
+      if (resumeError) {
+        console.error("DEBUG: Error verifying resume:", resumeError);
+        // setDebugInfo(prev => ({ 
+        //   ...prev, 
+        //   error: `Resume error: ${resumeError.code || resumeError.message}`,
+        //   lastAction: 'saveMessage:resumeVerifyError' 
+        // }));
+        
+        if (resumeError.code === 'PGRST116') {
+          // setDebugInfo(prev => ({ 
+          //   ...prev, 
+          //   error: `Resume ID ${resumeId} not found`,
+          //   lastAction: 'saveMessage:resumeNotFound' 
+          // }));
+        }
+        return false;
+      }
+      
+      if (!resumeData) {
+        console.error("DEBUG: Resume not found with ID:", resumeId);
+        // setDebugInfo(prev => ({ 
+        //   ...prev, 
+        //   error: `Resume ID ${resumeId} not found`,
+        //   lastAction: 'saveMessage:resumeNotFound' 
+        // }));
+        return false;
+      }
+      
+      console.log("DEBUG: Resume verified successfully");
       
       // Try to extract name from LinkedIn page title if we don't have one
       let recipientName = pageInfo.name || "";
+      console.log("DEBUG: Initial recipient name:", recipientName);
       
       if (!recipientName && pageInfo.title && pageInfo.title.includes(" | LinkedIn")) {
         const titleParts = pageInfo.title.split(" | ")[0].split(" - ");
         if (titleParts.length > 0) {
           recipientName = titleParts[0].trim();
+          console.log("DEBUG: Extracted name from title:", recipientName);
         }
       }
       
       // Final fallback if we still don't have a name
       if (!recipientName) {
         recipientName = "Unknown Recipient";
+        console.log("DEBUG: Using fallback recipient name");
       }
       
       // Clean up the recipient name with regex to remove numbers, (), |, and "LinkedIn"
+      const originalName = recipientName;
       recipientName = recipientName.replace(/[\d()|\s]+|LinkedIn/g, ' ').trim();
+      console.log("DEBUG: Cleaned recipient name:", recipientName, "from original:", originalName);
       
-      // Create message object
+      // Create message object - removing job_id field which is causing the foreign key violation
       const messageData = {
         user_id: user.id,
         message: messageText,
@@ -160,9 +281,21 @@ function Home() {
         recipient_title: pageInfo.jobTitle || undefined,
         recipient_company: pageInfo.company || undefined,
         resume_id: resumeId,
-        url: pageInfo.url,
-        job_id: jobId
+        url: pageInfo.url
+        // job_id field removed as it's causing a foreign key violation
       };
+      
+      // Log what we're doing with the job ID
+      if (jobId) {
+        console.log("DEBUG: Not including job_id in message data due to schema error:", jobId);
+      }
+      
+      console.log("DEBUG: Saving message data to Supabase:", messageData);
+      // setDebugInfo(prev => ({ 
+      //   ...prev, 
+      //   lastAction: 'saveMessage:inserting',
+      //   jobId: jobId || null 
+      // }));
       
       // Save to Supabase
       const { data, error } = await supabase
@@ -170,13 +303,57 @@ function Home() {
         .insert(messageData)
         .select();
         
-      if (error) throw error;
+      if (error) {
+        console.error("DEBUG: Supabase error saving message:", error);
+        console.error("DEBUG: Error details:", {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint
+        });
+        
+        // Error message variable no longer used since debug display is commented out
+        // let errorMessage = `DB error: ${error.code || error.message}`;
+        
+        // // Check for specific error types
+        // if (error.code === 'PGRST204') {
+        //   errorMessage = `Foreign key violation: ${error.details || error.message}`;
+        //   
+        //   // Add more specific messaging if we can identify the issue
+        //   if (error.details && error.details.includes('resume_id')) {
+        //     errorMessage = `Resume ID ${resumeId} does not exist or is invalid`;
+        //   } else if (error.details && error.details.includes('job_id')) {
+        //     errorMessage = `Job ID column issue: ${error.details}`;
+        //   }
+        // } else if (error.code === 'PGRST205') {
+        //   errorMessage = `Constraint violation: ${error.details || error.message}`;
+        // }
+        
+        // setDebugInfo(prev => ({ 
+        //   ...prev, 
+        //   error: errorMessage,
+        //   lastAction: 'saveMessage:dbError' 
+        // }));
+        return false;
+      }
       
-      console.log("Message saved successfully:", data);
+      console.log("DEBUG: Message saved successfully:", data);
       setSavedMessage(true);
+      // setDebugInfo(prev => ({ 
+      //   ...prev, 
+      //   messageSaveSuccess: true,
+      //   lastAction: 'saveMessage:success' 
+      // }));
+      return true;
       
     } catch (err) {
-      console.error("Error saving message:", err);
+      console.error("DEBUG: Error saving message:", err);
+      // setDebugInfo(prev => ({ 
+      //   ...prev, 
+      //   error: `Message save error: ${err instanceof Error ? err.message : String(err)}`,
+      //   lastAction: 'saveMessage:exception' 
+      // }));
+      return false;
     } finally {
       setSavingMessage(false);
     }
@@ -185,26 +362,53 @@ function Home() {
   const generateColdMessage = async () => {
     if (!selectedResume) {
       setError("Please select a resume first");
+      // setDebugInfo(prev => ({ 
+      //   ...prev, 
+      //   error: "No resume selected",
+      //   lastAction: 'generate:noResume' 
+      // }));
       return;
     }
     
+    // Reset states
     setGenerating(true);
     setError(null);
     setMessage(null);
     setSavedMessage(false);
+    setSavedJobId(null);
+    // setDebugInfo({
+    //   jobSaveAttempted: false,
+    //   jobSaveSuccess: false,
+    //   messageSaveAttempted: false,
+    //   messageSaveSuccess: false,
+    //   jobId: null,
+    //   error: null,
+    //   lastAction: 'generate:start'
+    // });
     
     try {
       // Get current tab information
+      console.log("DEBUG: Querying for active tab");
       chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
         if (!tabs[0]?.id) {
-          throw new Error("Could not find active tab");
+          console.error("DEBUG: No active tab found");
+          setGenerating(false);
+          setError("Could not find active tab");
+          // setDebugInfo(prev => ({ 
+          //   ...prev, 
+          //   error: "No active tab found",
+          //   lastAction: 'generate:noTab' 
+          // }));
+          return;
         }
         
         // Get current user for the template
+        console.log("DEBUG: Getting current user");
         const { data: { user } } = await supabase.auth.getUser();
         
         // Debug log to console
-        console.log("Resume data being sent:", selectedResume.parsed_data);
+        console.log("DEBUG: Resume data being sent:", selectedResume.parsed_data);
+        // setDebugInfo(prev => ({ ...prev, lastAction: 'generate:scraping' }));
         
         // Execute script to scrape the page
         chrome.scripting.executeScript({
@@ -212,20 +416,20 @@ function Home() {
           func: scrapePageInfo
         }, async (results) => {
           if (!results || chrome.runtime.lastError) {
-            throw new Error(chrome.runtime.lastError?.message || "Failed to scrape page");
+            console.error("DEBUG: Error scraping page:", chrome.runtime.lastError);
+            setGenerating(false);
+            setError(chrome.runtime.lastError?.message || "Failed to scrape page");
+            // setDebugInfo(prev => ({ 
+            //   ...prev, 
+            //   error: `Scrape error: ${chrome.runtime.lastError?.message || "Unknown"}`,
+            //   lastAction: 'generate:scrapeError' 
+            // }));
+            return;
           }
           
           const pageInfo = results[0].result as PageInfo;
-          console.log("Page info scraped:", pageInfo);
-          
-          // Save job if details are provided
-          let jobIdToSave: string | undefined = undefined;
-          if (jobTitle.trim()) {
-            const savedId = await saveJobToSupabase(pageInfo);
-            if (savedId) {
-              jobIdToSave = savedId;
-            }
-          }
+          console.log("DEBUG: Page info scraped:", pageInfo);
+          // setDebugInfo(prev => ({ ...prev, lastAction: 'generate:callAPI' }));
           
           // Add user ID to resume data for template lookup
           const resumeDataWithUser = {
@@ -245,23 +449,77 @@ function Home() {
               jobCompany: jobCompany.trim()
             }
           }, async (response) => {
-            console.log("Response from Gemini:", response);
+            console.log("DEBUG: Response from Gemini:", response);
             if (response.error) {
+              console.error("DEBUG: Gemini API error:", response.error);
               setError(response.error);
-            } else {
-              setMessage(response.message);
-              // Save message to Supabase
-              if (selectedResume.id && response.message) {
-                await saveMessageToSupabase(response.message, pageInfo, selectedResume.id, jobIdToSave);
+              setGenerating(false);
+              // setDebugInfo(prev => ({ 
+              //   ...prev, 
+              //   error: `API error: ${response.error}`,
+              //   lastAction: 'generate:apiError' 
+              // }));
+              return;
+            } 
+            
+            // Set the message first so the user sees it even if saving fails
+            setMessage(response.message);
+            // setDebugInfo(prev => ({ ...prev, lastAction: 'generate:gotMessage' }));
+                
+            // Process job and message saving separately
+            // First attempt to save job if job title is provided
+            let jobIdToSave: string | null = null;
+            if (jobTitle.trim()) {
+              console.log("DEBUG: Job title exists, attempting to save job");
+              try {
+                jobIdToSave = await saveJobToSupabase(pageInfo);
+                console.log("DEBUG: Job ID saved:", jobIdToSave);
+              } catch (jobErr) {
+                console.error("DEBUG: Error saving job (continuing):", jobErr);
+                // Continue even if job save fails
               }
+            } else {
+              console.log("DEBUG: No job title, skipping job save");
+              // setDebugInfo(prev => ({ ...prev, lastAction: 'generate:noJobTitle' }));
             }
+
+            // Then save message regardless of job save success
+            if (selectedResume.id && response.message) {
+              console.log("DEBUG: Saving message with job ID:", jobIdToSave);
+              const saveSuccess = await saveMessageToSupabase(
+                response.message, 
+                pageInfo, 
+                selectedResume.id, 
+                jobIdToSave || undefined
+              );
+              
+              if (!saveSuccess) {
+                console.error("DEBUG: Failed to save message to Supabase");
+                // Don't show error to user since we already have the message content displayed
+              }
+            } else {
+              console.error("DEBUG: Missing required data to save message");
+              // setDebugInfo(prev => ({ 
+              //   ...prev, 
+              //   error: "Missing resume/message data",
+              //   lastAction: 'generate:missingData' 
+              // }));
+            }
+            
             setGenerating(false);
+            // setDebugInfo(prev => ({ ...prev, lastAction: 'generate:complete' }));
           });
         });
       });
     } catch (err) {
+      console.error("DEBUG: Uncaught error in generate process:", err);
       setError(err instanceof Error ? err.message : 'Failed to generate message');
       setGenerating(false);
+      // setDebugInfo(prev => ({ 
+      //   ...prev, 
+      //   error: `Error: ${err instanceof Error ? err.message : String(err)}`,
+      //   lastAction: 'generate:uncaughtError' 
+      // }));
     }
   };
 
@@ -426,7 +684,43 @@ function Home() {
             </button>
           </div>
           
-          {/* Display generated message */}
+          {/* Debug information box - commented out since fix is working */}
+          {/* {message && (
+            <div className="mb-3 text-xs border border-gray-300 rounded-md overflow-hidden">
+              <div className="bg-gray-100 px-3 py-2 font-medium border-b border-gray-300 flex justify-between">
+                <span>Debug Info</span>
+                <span className={`px-1.5 py-0.5 rounded-full ${debugInfo.error ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+                  {debugInfo.error ? 'Error' : 'OK'}
+                </span>
+              </div>
+              <div className="p-2 bg-white">
+                <div className="grid grid-cols-2 gap-1">
+                  <div className="text-gray-500">Job Save:</div>
+                  <div className={debugInfo.jobSaveSuccess ? 'text-green-600' : (debugInfo.jobSaveAttempted ? 'text-red-600' : 'text-gray-500')}>
+                    {debugInfo.jobSaveSuccess ? 'Success' : (debugInfo.jobSaveAttempted ? 'Failed' : 'Not attempted')}
+                  </div>
+                  
+                  <div className="text-gray-500">Message Save:</div>
+                  <div className={debugInfo.messageSaveSuccess ? 'text-green-600' : (debugInfo.messageSaveAttempted ? 'text-red-600' : 'text-gray-500')}>
+                    {debugInfo.messageSaveSuccess ? 'Success' : (debugInfo.messageSaveAttempted ? 'Failed' : 'Not attempted')}
+                  </div>
+                  
+                  <div className="text-gray-500">Job ID:</div>
+                  <div className="font-mono">{debugInfo.jobId || 'none'}</div>
+                  
+                  <div className="text-gray-500">Last Action:</div>
+                  <div className="font-mono">{debugInfo.lastAction}</div>
+                </div>
+                
+                {debugInfo.error && (
+                  <div className="mt-1 p-1.5 bg-red-50 border border-red-100 rounded text-red-700 whitespace-normal break-words">
+                    {debugInfo.error}
+                  </div>
+                )}
+              </div>
+            </div>
+          )} */}
+          
           <GeneratedMessage
             message={message}
             savingMessage={savingMessage}
