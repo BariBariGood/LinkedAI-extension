@@ -70,6 +70,7 @@ function Home() {
   const [jobTitle, setJobTitle] = useState('');
   const [jobId, setJobId] = useState('');
   const [jobDescription, setJobDescription] = useState('');
+  const [jobCompany, setJobCompany] = useState('');
   const [showJobDetails, setShowJobDetails] = useState(false);
   const [savedJobId, setSavedJobId] = useState<string | null>(null);
   
@@ -174,7 +175,7 @@ function Home() {
         user_id: user.id,
         job_title: jobTitle.trim(),
         job_id: jobId.trim() || undefined,
-        company: pageInfo.company || undefined,
+        company: jobCompany.trim() || pageInfo.company || undefined,
         job_description: jobDescription.trim() || undefined,
         job_url: pageInfo.url
       };
@@ -307,7 +308,8 @@ function Home() {
             jobData: {
               jobTitle: jobTitle.trim(),
               jobId: jobId.trim(),
-              jobDescription: jobDescription.trim()
+              jobDescription: jobDescription.trim(),
+              jobCompany: jobCompany.trim()
             }
           }, async (response) => {
             console.log("Response from Gemini:", response);
@@ -466,6 +468,21 @@ function Home() {
                       value={jobId}
                       onChange={(e) => setJobId(e.target.value)}
                       placeholder="e.g. JOB-123456"
+                      className="w-full py-1 px-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      disabled={generating}
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="jobCompany" className="block text-xs font-medium text-gray-700 mb-1">
+                      Company
+                    </label>
+                    <input
+                      id="jobCompany"
+                      type="text"
+                      value={jobCompany}
+                      onChange={(e) => setJobCompany(e.target.value)}
+                      placeholder="e.g. LinkedIn"
                       className="w-full py-1 px-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
                       disabled={generating}
                     />
