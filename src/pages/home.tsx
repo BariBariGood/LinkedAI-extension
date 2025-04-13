@@ -149,6 +149,9 @@ function Home() {
         recipientName = "Unknown Recipient";
       }
       
+      // Clean up the recipient name with regex to remove numbers, (), |, and "LinkedIn"
+      recipientName = recipientName.replace(/[\d()|\s]+|LinkedIn/g, ' ').trim();
+      
       // Create message object
       const messageData = {
         user_id: user.id,
